@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Заявка на замовлення</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-neutral-950 text-neutral-100">
+<main class="max-w-xl mx-auto px-4 py-10">
+    <h1 class="text-3xl font-bold mb-6">Заявка на замовлення</h1>
+
+    {% if track %}
+    <div class="mb-6 p-4 rounded-xl border border-neutral-800 bg-neutral-900/60">
+        <div class="text-sm text-neutral-400 mb-1">Трек</div>
+        <div class="text-lg font-semibold">{{ track.title }}</div>
+    </div>
+    {% endif %}
+
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        {{ form.track }}
+        {{ form.honeypot }}
+        <div>
+            <label class="block text-sm text-neutral-300 mb-1">Ім’я</label>
+            {{ form.name }}
+        </div>
+        <div>
+            <label class="block text-sm text-neutral-300 mb-1">Email або Telegram</label>
+            {{ form.contact }}
+            {% for e in form.contact.errors %}
+            <p class="text-red-400 text-sm">{{ e }}</p>
+            {% endfor %}
+        </div>
+        <div>
+            <label class="block text-sm text-neutral-300 mb-1">Тип ліцензії</label>
+            {{ form.license_type }}
+            <p class="text-xs text-neutral-500 mt-1">Апгрейд можливий, якщо трек ще не викуплено ексклюзивно.</p>
+        </div>
+        <div>
+            <label class="block text-sm text-neutral-300 mb-1">Повідомлення</label>
+            {{ form.message }}
+        </div>
+        <button class="w-full py-2 rounded-xl bg-orange-500 text-neutral-900 font-semibold hover:bg-orange-400">
+            Відправити
+        </button>
+    </form>
+
+    <div class="mt-6">
+        <a href="/" class="text-sm text-neutral-400 hover:text-neutral-200">← Повернутись до каталогу</a>
+    </div>
+</main>
+
+<!-- міні-фільтр для додавання класів до полів -->
+{% load static %}
+</body>
+</html>
