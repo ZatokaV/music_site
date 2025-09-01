@@ -1,28 +1,32 @@
 import time
 
 from django.core.cache import cache
+from django.core.paginator import Paginator
 from django.db.models import Count
-from django.db.models import Q
+from django.db.models import Q, F
 from django.http import HttpResponseBadRequest
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
-from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 from .forms import InquiryForm
 from .models import Track, Genre
 from .notify import notify_telegram
 
+VIEW_COOLDOWN = 60 * 60  # 1 година
 
 GENDER_SLUGS = {"female", "male"}
 
 LICENSE_MAP = {
-    "nonex": "non_exclusive",     # ?license=nonex → Non-exclusive
-    "excl":  "exclusive",         # ?license=excl  → Exclusive
-    "stems": "exclusive_stems",   # ?license=stems → Exclusive+ (STEMS)
+    "nonex": "non_exclusive",  # ?license=nonex → Non-exclusive
+    "excl": "exclusive",  # ?license=excl  → Exclusive
+    "stems": "exclusive_stems",  # ?license=stems → Exclusive+ (STEMS)
 }
 
-
 PAGE_SIZE_DEFAULT = 21
+
+
+def how_it_works(request):
+    return render(request, "tracks/how_it_works.html")
 
 def catalog(request):
     # Базовий queryset
@@ -47,12 +51,13 @@ def catalog(request):
 
     context = {
         "page_obj": page_obj,
-        "tracks": page_obj.object_list,                  # ← ВАЖЛИВО: у шаблон йдуть лише елементи поточної сторінки
+        "tracks": page_obj.object_list,  # ← ВАЖЛИВО: у шаблон йдуть лише елементи поточної сторінки
         "paginator": paginator,
         "genres": Genre.objects.all().order_by("name"),  # чіпси зверху
         "active_genre": active_genre,
     }
     return render(request, "tracks/track_list.html", context)
+
 
 def home(request):
     featured = Track.objects.filter(is_featured=True).order_by("-created_at")[:6]
@@ -65,9 +70,21 @@ def home(request):
     })
 
 
+PRIMARY_TOKENS = {"female", "male"}  # що вважати «основними» жанрами
+
+def is_primary_genre(g):
+    slug = (g.slug or "").strip().lower()
+    name = (g.name or "").strip().lower()
+    return slug in PRIMARY_TOKENS or name in PRIMARY_TOKENS
+
 def track_list(request):
     genre_slug = request.GET.get("genre")
-    tracks_qs = Track.objects.all().prefetch_related("genres").order_by("-created_at")
+
+    tracks_qs = (
+        Track.objects.all()
+        .prefetch_related("genres")
+        .order_by("-created_at")
+    )
 
     active_genre = None
     if genre_slug:
@@ -75,14 +92,42 @@ def track_list(request):
         if active_genre:
             tracks_qs = tracks_qs.filter(genres=active_genre).distinct()
 
-    genres = Genre.objects.annotate(n=Count("tracks")).order_by("-n", "name")
+    paginator = Paginator(tracks_qs, 20)
+    page_obj = paginator.get_page(request.GET.get("page"))
 
-    return render(request, "tracks/track_list.html", {
-        "tracks": tracks_qs,
-        "genres": genres,
-        "active_genre": active_genre,
-    })
+    # беремо тільки жанри, які реально прив’язані до треків
+    all_genres = (
+        Genre.objects.filter(tracks__isnull=False)
+        .distinct()
+        .order_by("name")
+    )
 
+    # основні (male/female) — по slug або name
+    def is_primary(g):
+        s = (g.slug or "").lower()
+        n = (g.name or "").lower()
+        return s in ("male", "female") or n in ("male", "female")
+
+    primary_genres = [g for g in all_genres if is_primary(g)]
+    other_genres   = [g for g in all_genres if not is_primary(g)]
+
+    # якщо активний жанр у “інших”, розкриємо їх зразу
+    open_all_genres = bool(active_genre and not is_primary(active_genre))
+
+    return render(
+        request,
+        "tracks/track_list.html",
+        {
+            "tracks": page_obj,
+            "page_obj": page_obj,
+            "paginator": paginator,
+
+            "active_genre": active_genre,
+            "primary_genres": primary_genres,
+            "other_genres": other_genres,
+            "open_all_genres": open_all_genres,
+        },
+    )
 
 def order_page(request):
     """Форма замовлення з anti-bot, rate-limit, та префілом треку/ліцензії з query."""
@@ -149,13 +194,22 @@ def order_thanks(request):
 
 def track_detail(request, slug):
     track = get_object_or_404(Track.objects.prefetch_related("genres"), slug=slug)
+
+    viewed = request.session.get("viewed_tracks", {})  # { "id": ts }
+    now = int(time.time())
+    last = int(viewed.get(str(track.id), 0))
+    if now - last > VIEW_COOLDOWN:
+        Track.objects.filter(pk=track.pk).update(view_count=F("view_count") + 1)
+        viewed[str(track.id)] = now
+        request.session["viewed_tracks"] = viewed
+
     gender_tags = [g for g in track.genres.all() if g.slug in GENDER_SLUGS]
     other_tags = [g for g in track.genres.all() if g.slug not in GENDER_SLUGS]
 
     related = (Track.objects
-    .filter(~Q(id=track.id), genres__in=track.genres.all())
-    .distinct()
-    .order_by("-is_featured", "-created_at")[:6])
+               .filter(~Q(id=track.id), genres__in=track.genres.all())
+               .distinct()
+               .order_by("-is_featured", "-created_at")[:6])
 
     return render(request, "tracks/track_detail.html", {
         "track": track,

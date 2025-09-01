@@ -56,6 +56,8 @@ class Track(models.Model):
     description = models.TextField(blank=True)
     is_featured = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    view_count = models.PositiveIntegerField(default=0)      # перегляди деталки
+    order_clicks = models.PositiveIntegerField(default=0)    # кліки "Замовити"
 
     # якщо вже є — не дублюй
     genres = models.ManyToManyField("Genre", blank=True, related_name="tracks")

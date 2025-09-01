@@ -8,4 +8,5 @@ urlpatterns = [
     path('order/thanks/', views.order_thanks, name='order_thanks'),
     path("track/<slug:slug>/", views.track_detail, name="track_detail"),
     path("track/<slug:slug>/", views.track_detail, name="track_detail"),
+    path("how-it-works/", views.how_it_works, name="how_it_works"),
 ]
