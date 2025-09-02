@@ -17,3 +17,7 @@ media/
 # IDE
 .idea/
 .vscode/
+
+# Django static and media files
+static_root/
+media/
